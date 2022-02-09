@@ -1,3 +1,4 @@
+import torch
 from torch import Tensor
 
 class Mean:
@@ -25,3 +26,14 @@ class Accuracy:
     
     def compute(self):
         return self.correct / self.count
+    
+
+
+def weight_decay(model, device):
+    loss = torch.tensor(0, dtype=torch.float32, device=device)
+    n = 0
+    for m in model.modules():
+        if isinstance(m, torch.nn.Conv2d):
+            loss = loss + m.weight.norm(2)
+            n += 1
+    return loss / n
