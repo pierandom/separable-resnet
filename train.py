@@ -9,18 +9,22 @@ from torchvision import transforms as T
 from torchvision.transforms.functional import InterpolationMode
 
 from separable_resnet import SeparableResNet
-from utils import Mean, Accuracy
+from utils import Mean, Accuracy, weight_decay
 
 config = {
-    "net_width_factor": 1,
-    "net_depth_factor": 1,
-    "epochs": 100,
-    "warmup_epochs": 5,
+    "net_width_factor": 4,
+    "net_depth_factor": 3,
+    "kernel_size": 5,
+    "epochs": 120,
+    "warmup_epochs": 15,
     "lr_max": 1e-1,
     "lr_min": 1e-5,
     "momentum": 0.9,
-    "lr_period": 24,
+    "lr_base_period": 15,
+    "lr_period_factor": 2,
     "batch_size": 64,
+    "weight_decay_factor": 1e-2,
+    "clip_grad_max_norm": 1,
     "label_smoothing": 0.1,
     "dataset": "CIFAR10",
     "num_classes": 10
@@ -39,6 +43,7 @@ if TRACK:
 
 def get_data():
     transforms = T.Compose([
+        T.RandomHorizontalFlip(),
         T.TrivialAugmentWide(interpolation=InterpolationMode.BILINEAR),
         T.ToTensor(),
         T.RandomErasing()
@@ -78,10 +83,11 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device):
     for image, target in data_loader:
         image, target = image.to(device), target.to(device)
         logits = model(image)
-        loss = criterion(logits, target)
+        loss = criterion(logits, target) + config["weight_decay_factor"]*weight_decay(model, device)
         
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config["clip_grad_max_norm"])
         optimizer.step()
 
         epoch_loss.update(loss.item())
@@ -124,13 +130,19 @@ def main():
     data_loader_train, data_loader_test = get_data()
     model = SeparableResNet(
         num_classes=config["num_classes"],
+        kernel_size=config["kernel_size"],
         width_factor=config["net_width_factor"],
         depth_factor=config["net_depth_factor"]
     ).to(device)
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=config["label_smoothing"])
     optimizer = torch.optim.SGD(model.parameters(), lr=config["lr_max"], momentum=config["momentum"])
     scheduler1 = lr_scheduler.ConstantLR(optimizer, factor=1, total_iters=config["warmup_epochs"])
-    scheduler2 = lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=config["lr_period"], eta_min=config["lr_min"])
+    scheduler2 = lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer,
+        T_0=config["lr_base_period"],
+        T_mult=config["lr_period_factor"],
+        eta_min=config["lr_min"]
+    )
     scheduler = lr_scheduler.SequentialLR(optimizer, schedulers=[scheduler1, scheduler2], milestones=[config["warmup_epochs"]])
 
     EPOCHS = config["epochs"]
