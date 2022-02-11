@@ -1,5 +1,7 @@
-import wandb
+import os
+import json
 import time
+import wandb
 
 import torch
 from torch.optim import lr_scheduler
@@ -15,7 +17,7 @@ config = {
     "net_width_factor": 4,
     "net_depth_factor": 3,
     "kernel_size": 5,
-    "epochs": 120,
+    "epochs": 240,
     "warmup_epochs": 15,
     "lr_max": 1e-1,
     "lr_min": 1e-5,
@@ -30,13 +32,28 @@ config = {
     "num_classes": 10
 }
 
-TRACK = False
+TRACK = True
 if TRACK:
     wandb.init(
         project="separable-resnet",
         entity="pierand",
         config=config
     )
+
+
+# Save only one run for different datasets and depth/width factors
+SAVE = True
+if SAVE:
+    print("Saving model weights at the end of training")
+    save_path = os.path.join(
+        "pretrained", f"{config['dataset']}",
+        f"separable-resnet{config['net_width_factor']}-{config['net_depth_factor']}"
+    )
+    # This will overwrite existing saved weights
+    os.makedirs(save_path, exist_ok=True)
+    config_path = os.path.join(save_path, "config.json")
+    with open(config_path, 'w') as config_file:
+        json.dump(config, config_file)
 
 
 
@@ -172,6 +189,11 @@ def main():
             f"Loss: {train_stats['loss']:.6f} - Accuracy: {train_stats['accuracy']:.2%} - "
             f"Test Loss: {val_stats['val_loss']:.6f} - Test Accuracy: {val_stats['val_accuracy']:.2%}"
         )
+    
+    if SAVE:
+        weights_path = os.path.join(save_path, "weights.pth")
+        torch.save(model.state_dict(), weights_path)
+
 
 
 if __name__ == "__main__":
