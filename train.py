@@ -1,7 +1,7 @@
 import os
 import json
-import time
 import wandb
+from tqdm import tqdm
 
 import torch
 from torch.optim import lr_scheduler
@@ -17,7 +17,7 @@ config = {
     "net_width_factor": 4,
     "net_depth_factor": 3,
     "kernel_size": 5,
-    "epochs": 240,
+    "epochs": 480,
     "warmup_epochs": 15,
     "lr_max": 1e-1,
     "lr_min": 1e-5,
@@ -57,7 +57,6 @@ if SAVE:
 
 
 
-
 def get_data():
     transforms = T.Compose([
         T.RandomHorizontalFlip(),
@@ -92,23 +91,31 @@ def get_data():
 
 
 
-def train_one_epoch(model, criterion, optimizer, data_loader, device):
+def train_one_epoch(model, criterion, optimizer, data_loader, device, config, tqdm_desc: str = None):
     model.train()
     epoch_loss = Mean()
     epoch_accuracy = Accuracy()
+    tqdm_desc += " - Training  "
 
-    for image, target in data_loader:
-        image, target = image.to(device), target.to(device)
-        logits = model(image)
-        loss = criterion(logits, target) + config["weight_decay_factor"]*weight_decay(model, device)
+    with tqdm(data_loader, desc=tqdm_desc, unit="batch", bar_format="{l_bar}{bar:30}{r_bar}", colour="blue") as pbar:
+        for image, target in pbar:
+            image, target = image.to(device), target.to(device)
+            logits = model(image)
+            loss = criterion(logits, target) + config["weight_decay_factor"]*weight_decay(model, device)
+            
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config["clip_grad_max_norm"])
+            optimizer.step()
+
+            epoch_loss.update(loss.item())
+            epoch_accuracy.update(logits, target)
         
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config["clip_grad_max_norm"])
-        optimizer.step()
-
-        epoch_loss.update(loss.item())
-        epoch_accuracy.update(logits, target)
+            pbar_stats = {
+                "loss": f"{epoch_loss.compute():.6f}",
+                "accuracy": f"{epoch_accuracy.compute():.2%}"
+            }
+            pbar.set_postfix(pbar_stats)
     
     stats = {
         "loss": epoch_loss.compute(),
@@ -118,30 +125,38 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device):
 
 
 
-def evaluate(model, criterion, data_loader, device):
+def evaluate(model, criterion, data_loader, device, tqdm_desc):
     model.eval()
     val_loss = Mean()
     val_accuracy = Accuracy()
+    tqdm_desc += " - Validation"
 
     with torch.inference_mode():
-        for image, target in data_loader:
-            image, target = image.to(device), target.to(device)
-            logits = model(image)
+        with tqdm(data_loader, desc=tqdm_desc, unit="batch", bar_format="{l_bar}{bar:30}{r_bar}", colour="yellow") as pbar:
+            for image, target in pbar:
+                image, target = image.to(device), target.to(device)
+                logits = model(image)
 
-            loss = criterion(logits, target)
+                loss = criterion(logits, target)
 
-            val_loss.update(loss.item())
-            val_accuracy.update(logits, target)
-        
-        stats = {
-            "val_loss": val_loss.compute(),
-            "val_accuracy": val_accuracy.compute()
-        }
+                val_loss.update(loss.item())
+                val_accuracy.update(logits, target)
+            
+                pbar_stats = {
+                    "loss": f"{val_loss.compute():.6f}",
+                    "accuracy": f"{val_accuracy.compute():.2%}"
+                }
+                pbar.set_postfix(pbar_stats)
+
+    stats = {
+        "val_loss": val_loss.compute(),
+        "val_accuracy": val_accuracy.compute()
+    }      
     return stats
     
 
 
-def main():
+def main(config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     data_loader_train, data_loader_test = get_data()
@@ -165,7 +180,7 @@ def main():
     EPOCHS = config["epochs"]
     epoch_fmt = f">{len(str(EPOCHS))}"
 
-    num_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    num_parameters = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_parameters:,}")
 
     if torch.cuda.is_available():
@@ -174,21 +189,14 @@ def main():
         print("Training on CPU")
 
     for epoch in range(1, 1+EPOCHS):
-        start_time = time.time()
-        train_stats = train_one_epoch(model, criterion, optimizer, data_loader_train, device)
+        tqdm_desc = f"Epoch {epoch:{epoch_fmt}}/{EPOCHS}"
+        train_stats = train_one_epoch(model, criterion, optimizer, data_loader_train, device, config, tqdm_desc)
         scheduler.step()
-        val_stats = evaluate(model, criterion, data_loader_test, device)
-        epoch_time = time.time() - start_time
+        val_stats = evaluate(model, criterion, data_loader_test, device, tqdm_desc)
 
         if TRACK:
             wandb.log(train_stats, step=epoch)
             wandb.log(val_stats, step=epoch)
-        
-        print(
-            f"Epoch: {epoch:{epoch_fmt}}/{EPOCHS} - Time: {int(epoch_time)}s - "
-            f"Loss: {train_stats['loss']:.6f} - Accuracy: {train_stats['accuracy']:.2%} - "
-            f"Test Loss: {val_stats['val_loss']:.6f} - Test Accuracy: {val_stats['val_accuracy']:.2%}"
-        )
     
     if SAVE:
         weights_path = os.path.join(save_path, "weights.pth")
@@ -197,4 +205,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(config)
