@@ -1,7 +1,9 @@
 import os
 import json
+import time
+from datetime import timedelta
+from argparse import ArgumentParser, Namespace
 import wandb
-from tqdm import tqdm
 
 import torch
 from torch.optim import lr_scheduler
@@ -13,51 +15,36 @@ from torchvision.transforms.functional import InterpolationMode
 from separable_resnet import SeparableResNet
 from utils import Mean, Accuracy, weight_decay
 
-config = {
-    "net_width_factor": 4,
-    "net_depth_factor": 3,
-    "kernel_size": 5,
-    "epochs": 480,
-    "warmup_epochs": 15,
-    "lr_max": 1e-1,
-    "lr_min": 1e-5,
-    "momentum": 0.9,
-    "lr_base_period": 15,
-    "lr_period_factor": 2,
-    "batch_size": 64,
-    "weight_decay_factor": 1e-2,
-    "clip_grad_max_norm": 1,
-    "label_smoothing": 0.1,
-    "dataset": "CIFAR10",
-    "num_classes": 10
-}
-
-TRACK = True
-if TRACK:
-    wandb.init(
-        project="separable-resnet",
-        entity="pierand",
-        config=config
-    )
 
 
-# Save only one run for different datasets and depth/width factors
-SAVE = True
-if SAVE:
-    print("Saving model weights at the end of training")
-    save_path = os.path.join(
-        "pretrained", f"{config['dataset']}",
-        f"separable-resnet{config['net_width_factor']}-{config['net_depth_factor']}"
-    )
-    # This will overwrite existing saved weights
-    os.makedirs(save_path, exist_ok=True)
-    config_path = os.path.join(save_path, "config.json")
-    with open(config_path, 'w') as config_file:
-        json.dump(config, config_file)
+def parse_args():
+    parser = ArgumentParser(description="PyTorch training script")
+    parser.add_argument("--resume_run_id", type=str, help="WandB run id to resume")
+    parser.add_argument("--net_width_factor", type=int, default=4)
+    parser.add_argument("--net_depth_factor", type=int, default=3)
+    parser.add_argument("--kernel_size", type=int, default=5)
+    parser.add_argument("--epochs", type=int, default=120)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--lr_max", type=float, default=1e-1)
+    parser.add_argument("--momentum", type=float, default=0.9)
+    parser.add_argument("--warmup_epochs", type=int, default=15)
+    parser.add_argument("--lr_base_period", type=int, default=15)
+    parser.add_argument("--lr_period_factor", type=int, default=2)
+    parser.add_argument("--weight_decay_factor", type=float, default=1e-2)
+    parser.add_argument("--clip_grad_max_norm", type=float, default=1)
+    parser.add_argument("--label_smoothing", type=float, default=0.1)
+    parser.add_argument("--dataset", choices=["cifar10"], default="cifar10")
+    
+    args = parser.parse_args()
+    return args
 
 
-
-def get_data():
+def get_data(dataset_name, batch_size):
+    if dataset_name == "cifar10":
+        dataset = datasets.CIFAR10
+    else:
+        raise ValueError(f"Unknown dataset: {dataset_name}")
+    
     transforms = T.Compose([
         T.RandomHorizontalFlip(),
         T.TrivialAugmentWide(interpolation=InterpolationMode.BILINEAR),
@@ -66,24 +53,24 @@ def get_data():
     ])
 
     train_loader = DataLoader(
-        datasets.CIFAR10(
+        dataset(
             root=".datasets",
             train=True,
             transform=transforms,
             download=True
         ),
-        batch_size=config["batch_size"],
+        batch_size=batch_size,
         shuffle=True
     )
 
     test_loader = DataLoader(
-        datasets.CIFAR10(
+        dataset(
             root=".datasets",
             train=False,
             transform=T.ToTensor(),
             download=True
         ),
-        batch_size=config["batch_size"],
+        batch_size=batch_size,
         shuffle=False
     )
 
@@ -91,32 +78,24 @@ def get_data():
 
 
 
-def train_one_epoch(model, criterion, optimizer, data_loader, device, config, tqdm_desc: str = None):
+def train_one_epoch(model, criterion, optimizer, data_loader, device, weight_decay_factor, clip_grad_max_norm):
     model.train()
     epoch_loss = Mean()
     epoch_accuracy = Accuracy()
-    tqdm_desc += " - Training  "
 
-    with tqdm(data_loader, desc=tqdm_desc, unit="batch", bar_format="{l_bar}{bar:30}{r_bar}", colour="blue") as pbar:
-        for image, target in pbar:
-            image, target = image.to(device), target.to(device)
-            logits = model(image)
-            loss = criterion(logits, target) + config["weight_decay_factor"]*weight_decay(model, device)
-            
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config["clip_grad_max_norm"])
-            optimizer.step()
-
-            epoch_loss.update(loss.item())
-            epoch_accuracy.update(logits, target)
+    for image, target in data_loader:
+        image, target = image.to(device), target.to(device)
+        logits = model(image)
+        loss = criterion(logits, target) + weight_decay_factor*weight_decay(model, device)
         
-            pbar_stats = {
-                "loss": f"{epoch_loss.compute():.6f}",
-                "accuracy": f"{epoch_accuracy.compute():.2%}"
-            }
-            pbar.set_postfix(pbar_stats)
-    
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_max_norm)
+        optimizer.step()
+
+        epoch_loss.update(loss.item())
+        epoch_accuracy.update(logits, target)
+        
     stats = {
         "loss": epoch_loss.compute(),
         "accuracy": epoch_accuracy.compute()
@@ -125,28 +104,20 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, config, tq
 
 
 
-def evaluate(model, criterion, data_loader, device, tqdm_desc):
+def evaluate(model, criterion, data_loader, device):
     model.eval()
     val_loss = Mean()
     val_accuracy = Accuracy()
-    tqdm_desc += " - Validation"
 
     with torch.inference_mode():
-        with tqdm(data_loader, desc=tqdm_desc, unit="batch", bar_format="{l_bar}{bar:30}{r_bar}", colour="yellow") as pbar:
-            for image, target in pbar:
-                image, target = image.to(device), target.to(device)
-                logits = model(image)
+        for image, target in data_loader:
+            image, target = image.to(device), target.to(device)
+            logits = model(image)
 
-                loss = criterion(logits, target)
+            loss = criterion(logits, target)
 
-                val_loss.update(loss.item())
-                val_accuracy.update(logits, target)
-            
-                pbar_stats = {
-                    "loss": f"{val_loss.compute():.6f}",
-                    "accuracy": f"{val_accuracy.compute():.2%}"
-                }
-                pbar.set_postfix(pbar_stats)
+            val_loss.update(loss.item())
+            val_accuracy.update(logits, target)
 
     stats = {
         "val_loss": val_loss.compute(),
@@ -156,53 +127,121 @@ def evaluate(model, criterion, data_loader, device, tqdm_desc):
     
 
 
-def main(config):
+def main(args):
+    config = {
+        "net_width_factor": args.net_width_factor,
+        "net_depth_factor": args.net_depth_factor,
+        "kernel_size": args.kernel_size,
+        "warmup_epochs": args.warmup_epochs,
+        "lr_max": args.lr_max,
+        "momentum": args.momentum,
+        "lr_base_period": args.lr_base_period,
+        "lr_period_factor": args.lr_period_factor,
+        "batch_size": args.batch_size,
+        "weight_decay_factor": args.weight_decay_factor,
+        "clip_grad_max_norm": args.clip_grad_max_norm,
+        "label_smoothing": args.label_smoothing,
+        "dataset": args.dataset,
+    }
+
+    if args.resume_run_id:
+        wandb.init(
+            project="separable-resnet",
+            resume="must",
+            id=args.resume_run_id
+        )
+    else:
+        wandb.init(
+            project="separable-resnet",
+            config=config
+        )
+        
+    config_path = os.path.join(wandb.run.dir, "config.json")
+    checkpoint_path = os.path.join(wandb.run.dir, "checkpoint.pth")
+        
+    if args.resume_run_id: # load resuming run config
+        wandb.restore("config.json")
+        with open(config_path) as config_file:
+            config = json.load(config_file)
+        args_dict = vars(args)
+        args_dict.update(config)
+        args = Namespace(**args_dict)
+    else: # save run config
+        with open(config_path, "w") as config_file:
+            json.dump(config, config_file)
+        wandb.save(config_path, base_path=wandb.run.dir)
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    data_loader_train, data_loader_test = get_data()
+    data_loader_train, data_loader_test = get_data(args.dataset, args.batch_size)
     model = SeparableResNet(
-        num_classes=config["num_classes"],
-        kernel_size=config["kernel_size"],
-        width_factor=config["net_width_factor"],
-        depth_factor=config["net_depth_factor"]
+        num_classes=len(data_loader_train.dataset.classes),
+        kernel_size=args.kernel_size,
+        width_factor=args.net_width_factor,
+        depth_factor=args.net_depth_factor
     ).to(device)
-    criterion = torch.nn.CrossEntropyLoss(label_smoothing=config["label_smoothing"])
-    optimizer = torch.optim.SGD(model.parameters(), lr=config["lr_max"], momentum=config["momentum"])
-    scheduler1 = lr_scheduler.ConstantLR(optimizer, factor=1, total_iters=config["warmup_epochs"])
-    scheduler2 = lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer,
-        T_0=config["lr_base_period"],
-        T_mult=config["lr_period_factor"],
-        eta_min=config["lr_min"]
-    )
-    scheduler = lr_scheduler.SequentialLR(optimizer, schedulers=[scheduler1, scheduler2], milestones=[config["warmup_epochs"]])
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
+    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr_max, momentum=args.momentum)
+    scheduler1 = lr_scheduler.ConstantLR(optimizer, factor=1, total_iters=args.warmup_epochs)
+    scheduler2 = lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=args.lr_base_period, T_mult=args.lr_period_factor)
+    scheduler = lr_scheduler.SequentialLR(optimizer, schedulers=[scheduler1, scheduler2], milestones=[args.warmup_epochs])
 
-    EPOCHS = config["epochs"]
-    epoch_fmt = f">{len(str(EPOCHS))}"
+    if wandb.run.resumed:
+        wandb.restore("checkpoint.pth") # returns io object with wrong encoding on windows
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        start_epoch = checkpoint["epoch"]
+    else:
+        start_epoch = 0
+
 
     num_parameters = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {num_parameters:,}")
 
     if torch.cuda.is_available():
-        print("Training on GPU")
+        print("Training on GPU ...")
     else:
-        print("Training on CPU")
-
-    for epoch in range(1, 1+EPOCHS):
-        tqdm_desc = f"Epoch {epoch:{epoch_fmt}}/{EPOCHS}"
-        train_stats = train_one_epoch(model, criterion, optimizer, data_loader_train, device, config, tqdm_desc)
-        scheduler.step()
-        val_stats = evaluate(model, criterion, data_loader_test, device, tqdm_desc)
-
-        if TRACK:
-            wandb.log(train_stats, step=epoch)
-            wandb.log(val_stats, step=epoch)
+        print("Training on CPU ...")
     
-    if SAVE:
-        weights_path = os.path.join(save_path, "weights.pth")
-        torch.save(model.state_dict(), weights_path)
+
+    tot_epochs = start_epoch + args.epochs
+    epoch_fmt = f">{len(str(tot_epochs))}"
+    start_time_training = time.time()
+
+    for epoch in range(1+start_epoch, 1+tot_epochs):
+        start_time_epoch = time.time()
+        train_stats = train_one_epoch(
+            model, criterion, optimizer, data_loader_train, device,
+            args.weight_decay_factor, args.clip_grad_max_norm
+        )
+        scheduler.step()
+        val_stats = evaluate(model, criterion, data_loader_test, device)
+        epoch_time = int(time.time() - start_time_epoch)
+        training_time = int(time.time() - start_time_training)
+
+        wandb.log(train_stats, step=epoch)
+        wandb.log(val_stats, step=epoch)
+    
+        checkpoint = {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict()
+        }
+        torch.save(checkpoint, checkpoint_path)
+        wandb.save(checkpoint_path, base_path=wandb.run.dir)
+
+        print(
+            f"Epoch: {epoch:{epoch_fmt}}/{tot_epochs} - "
+            f"Time: {timedelta(seconds=epoch_time)}/{timedelta(seconds=training_time)} - "
+            f"Train Loss: {train_stats['loss']:.6f} - Train Accuracy: {train_stats['accuracy']:.2%} - "
+            f"Test Loss: {val_stats['val_loss']:.6f} - Test Accuracy: {val_stats['val_accuracy']:.2%}"
+        )
 
 
 
 if __name__ == "__main__":
-    main(config)
+    args = parse_args()
+    main(args)
