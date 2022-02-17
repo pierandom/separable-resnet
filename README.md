@@ -3,7 +3,7 @@
 Experimenting with *Deep Learning* ideas and *Convolutional Neural Networks* on my laptop.
 
 ## Network Architecture
-The network architecture employs **skip connections** as in *ResNet* and **depthwise separable** convolutions as in *MobileNet*.
+The network architecture employs **skip connections** as in [*ResNet*](https://arxiv.org/abs/1512.03385) and **depthwise separable** convolutions as in [*MobileNet*](https://arxiv.org/abs/1704.04861).
 
 ## Training recipe
 **Old tricks**
