@@ -1,6 +1,6 @@
 # SeparableResNet
 
-Experimenting *Deep Learning* ideas with *Convolutional Neural Networks* on my laptop.
+Experimenting with *Deep Learning* ideas and *Convolutional Neural Networks* on my laptop.
 
 ## Network Architecture
 The network architecture employs **skip connections** as in *ResNet* and **depthwise separable** convolutions as in *MobileNet*.
