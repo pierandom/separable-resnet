@@ -55,9 +55,9 @@ class SeparableResNet(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             Conv2dNorm(3, 16*width_factor, kernel_size=1),
-            Stage(16*width_factor, kernel_size, repeat=(1*depth_factor)),
+            Stage(16*width_factor, kernel_size, repeat=(3*depth_factor)),
             SeparableConv(16*width_factor, 32*width_factor, kernel_size, stride=2),
-            Stage(32*width_factor, kernel_size, repeat=(3*depth_factor)),
+            Stage(32*width_factor, kernel_size, repeat=(2*depth_factor)),
             SeparableConv(32*width_factor, 64*width_factor, kernel_size, stride=2),
             Stage(64*width_factor, kernel_size, repeat=(1*depth_factor)),
             nn.AdaptiveAvgPool2d(1),
