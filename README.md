@@ -29,7 +29,7 @@ Model format is: *SeparableResNet\<width-factor>-\<depth-factor>*
 
 Weights are available under `trained-models`.
 
-### Training Breakdown
+### Test Accuracy Breakdown
 |  |  |  |  |  |  |  |
 |:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 |**Epoch**   |   30  |   60  |  120  |  240  |  480  |  960  |
