@@ -20,7 +20,7 @@ The network architecture employs **skip connections** as in *ResNet* and **depth
 
 *Old tricks* is common practice whereas *new tricks* is not. 
 
-## Results
+## Results on CIFAR10
 Model format is: *SeparableResNet\<width-factor>-\<depth-factor>*
 
 |Model             |Parameters|Test Accuracy|
