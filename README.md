@@ -27,7 +27,7 @@ Model format is: *SeparableResNet\<width-factor>-\<depth-factor>*
 |     :---:        |   :---:  |    :---:    |
 |SeparableResNet4-3|   0.45M  |     96.09   |
 
-Weights are available under `trained-models`.
+Weights are available under `trained-models`. Look at `check_results.py` on how to use them.
 
 ### Test Accuracy Breakdown
 |  |  |  |  |  |  |  |
