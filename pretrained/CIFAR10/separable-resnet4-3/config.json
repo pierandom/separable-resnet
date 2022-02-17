@@ -1,0 +1,1 @@
+{"net_width_factor": 4, "net_depth_factor": 3, "kernel_size": 5, "warmup_epochs": 15, "lr_max": 0.1, "momentum": 0.9, "lr_base_period": 15, "lr_period_factor": 2, "batch_size": 64, "weight_decay_factor": 0.01, "clip_grad_max_norm": 1, "label_smoothing": 0.1, "dataset": "cifar10"}
