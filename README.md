@@ -30,10 +30,15 @@ Model format is: *SeparableResNet\<width-factor>-\<depth-factor>*
 Weights are available under `trained-models`. Look at `check_results.py` on how to use them.
 
 ### Test Accuracy Breakdown
-|  |  |  |  |  |  |  |
-|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
-|**Epoch**   |   30  |   60  |  120  |  240  |  480  |  960  |
-|**Accuracy**| 92.28 | 93.34 | 94.56 | 95.00 | 95.65 | 96.09 |
+| Epoch | Test Accuracy |
+| :---: | :---: |
+| 30    | 92.28 |
+| 60    | 93.34 |
+| 120   | 94.56 |
+| 240   | 95.00 |
+| 480   | 95.65 |
+| 960   | 96.09 |
+| 1920  | 96.49 |
 
 From the progression it looks like further improvements are possible but this would require many days of training on my laptop.
 
