@@ -13,12 +13,14 @@ from torchvision import transforms as T
 from torchvision.transforms.functional import InterpolationMode
 
 from separable_resnet import SeparableResNet
+from resnet import resnet32
 from utils import Mean, Accuracy, weight_decay
 
 
 
 def parse_args():
     parser = ArgumentParser(description="PyTorch training script")
+    parser.add_argument("--model_name", choices=["separable_resnet", "resnet"], default="separable_resnet")
     parser.add_argument("--resume_run_id", type=str, help="WandB run id to resume")
     parser.add_argument("--net_width_factor", type=int, default=4)
     parser.add_argument("--net_depth_factor", type=int, default=3)
@@ -129,9 +131,7 @@ def evaluate(model, criterion, data_loader, device):
 
 def main(args):
     config = {
-        "net_width_factor": args.net_width_factor,
-        "net_depth_factor": args.net_depth_factor,
-        "kernel_size": args.kernel_size,
+        "model_name": args.model_name,
         "warmup_epochs": args.warmup_epochs,
         "lr_max": args.lr_max,
         "momentum": args.momentum,
@@ -143,6 +143,13 @@ def main(args):
         "label_smoothing": args.label_smoothing,
         "dataset": args.dataset,
     }
+
+    if args.model_name == "separable_resnet":
+        config.update({
+            "net_width_factor": args.net_width_factor,
+            "net_depth_factor": args.net_depth_factor,
+            "kernel_size": args.kernel_size
+        })
 
     if args.resume_run_id:
         wandb.init(
@@ -174,12 +181,15 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     data_loader_train, data_loader_test = get_data(args.dataset, args.batch_size)
-    model = SeparableResNet(
-        num_classes=len(data_loader_train.dataset.classes),
-        kernel_size=args.kernel_size,
-        width_factor=args.net_width_factor,
-        depth_factor=args.net_depth_factor
-    ).to(device)
+    if args.model_name == "separable_resnet":
+        model = SeparableResNet(
+            num_classes=len(data_loader_train.dataset.classes),
+            kernel_size=args.kernel_size,
+            width_factor=args.net_width_factor,
+            depth_factor=args.net_depth_factor
+        ).to(device)
+    elif args.model_name == "resnet":
+        model = resnet32().to(device)
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr_max, momentum=args.momentum)
     scheduler1 = lr_scheduler.ConstantLR(optimizer, factor=1, total_iters=args.warmup_epochs)
