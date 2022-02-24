@@ -25,25 +25,28 @@ Model format is: *SeparableResNet\<width-factor>-\<depth-factor>*
 
 |Model             |Parameters|Test Accuracy|
 |     :---:        |   :---:  |    :---:    |
-|SeparableResNet4-3|   0.45M  |     96.49   |
+|SeparableResNet4-3|   0.45M  |    96.49    |
+| ResNet32*        |   0.47M  |    94.19    | 
+
+\*This implementation employs shortcut connections of type (B) instead of type (A). It also follows the above training recipe.
 
 Weights are available under `trained-models`. Look at `check_results.py` on how to use them.
 
 ### Test Accuracy Breakdown
-| Epoch | Test Accuracy |
-| :---: | :---: |
-| 30    | 92.28 |
-| 60    | 93.34 |
-| 120   | 94.56 |
-| 240   | 95.00 |
-| 480   | 95.65 |
-| 960   | 96.09 |
-| 1920  | 96.49 |
+| Epoch | SeparableResNet4-3 | ResNet32 |
+| :---: | :---: | :---: |
+| 30    | 92.28 | 89.74 |
+| 60    | 93.34 | 91.19 |
+| 120   | 94.56 | 92.61 |
+| 240   | 95.00 | 93.55 |
+| 480   | 95.65 | 94.04 |
+| 960   | 96.09 | 94.19 |
+| 1920  | 96.49 |   -   |
 
-From the progression it looks like further improvements are possible but this would require many days of training on my laptop.
+- From the progression it looks like further improvements are possible for *SeparableResNet4-3* but this becomes exponentially difficult.
+
+- We can see this training recipe is more effective on *ResNet32* than the original one.
+
+- Improvements are steadier for *SeparableResNet4-3*.
 
 ![Test Accuracy learning curve](trained-models/CIFAR10/separable-resnet4-3/test-accuracy.png)
-
-
-### Insight
-I think the good performances are due more to the training recipe than the network architecture.
