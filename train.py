@@ -6,8 +6,8 @@ from argparse import ArgumentParser, Namespace
 import wandb
 
 import torch
-import torch.nn.functional as F
 from torch.optim import lr_scheduler
+from torch.cuda.amp import GradScaler
 from torchvision import datasets
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
@@ -82,6 +82,7 @@ def train_one_epoch(
     model,
     criterion,
     optimizer,
+    scaler,
     data_loader,
     device,
     clip_grad_max_norm,
@@ -93,13 +94,16 @@ def train_one_epoch(
 
     for image, target in data_loader:
         image, target = image.to(device), target.to(device)
-        logits = model(image) / temperature
-        loss = criterion(logits, target)
-
+        with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
+            logits = model(image) / temperature
+            loss = criterion(logits, target)
+        
         optimizer.zero_grad()
-        loss.backward()
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_max_norm)
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
         epoch_loss.update(loss.item())
         epoch_accuracy.update(logits, target)
@@ -113,7 +117,7 @@ def evaluate(model, criterion, data_loader, device):
     val_loss = Mean()
     val_accuracy = Accuracy()
 
-    with torch.inference_mode():
+    with torch.no_grad():
         for image, target in data_loader:
             image, target = image.to(device), target.to(device)
             logits = model(image)
@@ -183,7 +187,9 @@ def main(args):
         )
     elif args.model_name == "resnet":
         model = resnet32()
+    model = torch.compile(model)
     model = model.to(device)
+    scaler = GradScaler()
     criterion = LossFn(
         model,
         device,
@@ -235,6 +241,7 @@ def main(args):
             model,
             criterion,
             optimizer,
+            scaler,
             data_loader_train,
             device,
             args.clip_grad_max_norm,
