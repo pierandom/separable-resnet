@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms as T
 from torchvision.transforms.functional import InterpolationMode
 
-from separable_resnet2 import SeparableResNet
+from separable_resnet import SeparableResNet
 from resnet import resnet32
 from utils import Mean, Accuracy, LossFn
 
@@ -261,8 +261,8 @@ def main(args):
             "optimizer_state_dict": optimizer.state_dict(),
             "scheduler_state_dict": scheduler.state_dict(),
         }
-        # torch.save(checkpoint, checkpoint_path)
-        # wandb.save(checkpoint_path, base_path=wandb.run.dir)
+        torch.save(checkpoint, checkpoint_path)
+        wandb.save(checkpoint_path, base_path=wandb.run.dir)
 
         print(
             f"Epoch: {epoch:{epoch_fmt}}/{tot_epochs} - "
