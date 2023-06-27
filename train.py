@@ -144,6 +144,9 @@ def main(args):
         "clip_grad_max_norm": args.clip_grad_max_norm,
         "label_smoothing": args.label_smoothing,
         "dataset": args.dataset,
+        "temperature": args.temperature,
+        "use_entropy_weights": args.use_entropy_weights,
+        "entropy_with_grads": args.entropy_with_grads,
     }
 
     if args.model_name == "separable_resnet":
