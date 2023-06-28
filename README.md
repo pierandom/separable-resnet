@@ -33,15 +33,15 @@ Model format is: *SeparableResNet\<width-factor>-\<depth-factor>*
 Weights are available under `trained-models`. Look at `check_results.py` on how to use them.
 
 ### Test Accuracy Breakdown
-| Epoch | SeparableResNet4-3 | ResNet32 |
-| :---: | :---: | :---: |
-| 30    | 92.28 | 89.74 |
-| 60    | 93.34 | 91.19 |
-| 120   | 94.56 | 92.61 |
-| 240   | 95.00 | 93.55 |
-| 480   | 95.65 | 94.04 |
-| 960   | 96.09 | 94.19 |
-| 1920  | 96.49 |   -   |
+| Epoch | SeparableResNet4-3 | SeparableResNetV2-4-3 | ResNet32 |
+| :---: | :---: | :---: | :---: |
+| 30    | 92.28 | 92.72 | 89.74 |
+| 60    | 93.34 | 93.83 | 91.19 |
+| 120   | 94.56 | 94.91 | 92.61 |
+| 240   | 95.00 | 95.45 | 93.55 |
+| 480   | 95.65 | 96.01 | 94.04 |
+| 960   | 96.09 | 96.40 | 94.19 |
+| 1920  | 96.49 |   -   |   -   |
 
 - From the progression it looks like further improvements are possible for *SeparableResNet4-3* but this becomes exponentially difficult.
 
