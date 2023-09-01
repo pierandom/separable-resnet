@@ -1,23 +1,21 @@
+import torch
 from torch import nn
 
 
-class Conv2dNorm(nn.Module):
+class Conv2dNorm(nn.Sequential):
     def __init__(self, in_ch, out_ch, kernel_size=1, stride=1, padding=0, groups=1):
-        super().__init__()
-        self.layer = nn.Sequential(
+        super().__init__(
             nn.BatchNorm2d(in_ch),
-            nn.Conv2d(in_ch, out_ch, kernel_size, stride, padding, groups=groups, bias=False),
+            nn.Conv2d(
+                in_ch, out_ch, kernel_size, stride, padding, groups=groups, bias=False
+            ),
             nn.GELU(),
         )
 
-    def forward(self, x):
-        return self.layer(x)
 
-
-class SeparableConv(nn.Module):
+class SeparableConv(nn.Sequential):
     def __init__(self, in_ch, out_ch, kernel_size, stride=1) -> None:
-        super().__init__()
-        self.layer = nn.Sequential(
+        super().__init__(
             Conv2dNorm(
                 in_ch,
                 in_ch,
@@ -29,43 +27,32 @@ class SeparableConv(nn.Module):
             Conv2dNorm(in_ch, out_ch),
         )
 
-    def forward(self, x):
-        return self.layer(x)
-
 
 class ResBlock(nn.Module):
     def __init__(self, channels, kernel_size) -> None:
         super().__init__()
         self.residual = SeparableConv(channels, channels, kernel_size)
+        self.register_buffer("sqrt_2", torch.tensor(2).sqrt(), persistent=False)
 
     def forward(self, x):
-        return x + self.residual(x)
+        return (x + self.residual(x)) / self.sqrt_2
 
 
-class Stage(nn.Module):
+class Stage(nn.Sequential):
     def __init__(self, channels, kernel_size, repeat) -> None:
-        super().__init__()
-        modules = [ResBlock(channels, kernel_size) for _ in range(repeat)]
-        self.stage = nn.Sequential(*modules)
-
-    def forward(self, x):
-        return self.stage(x)
+        super().__init__(*[ResBlock(channels, kernel_size) for _ in range(repeat)])
 
 
-class SeparableResNet(nn.Module):
+class SeparableResNet(nn.Sequential):
     def __init__(self, num_classes, kernel_size=5, width_factor=1, depth_factor=1):
-        super().__init__()
-        self.net = nn.Sequential(
+        super().__init__(
             Conv2dNorm(3, 16 * width_factor, kernel_size=1),
-            Stage(16 * width_factor, kernel_size, repeat=(3 * depth_factor)),
+            Stage(16 * width_factor, kernel_size, repeat=depth_factor),
             SeparableConv(16 * width_factor, 32 * width_factor, kernel_size, stride=2),
-            Stage(32 * width_factor, kernel_size, repeat=(2 * depth_factor)),
+            Stage(32 * width_factor, kernel_size, repeat=depth_factor),
             SeparableConv(32 * width_factor, 64 * width_factor, kernel_size, stride=2),
-            Stage(64 * width_factor, kernel_size, repeat=(1 * depth_factor)),
+            Stage(64 * width_factor, kernel_size, repeat=depth_factor),
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
             nn.Linear(64 * width_factor, num_classes),
         )
-
-    def forward(self, x):
-        return self.net(x)
