@@ -3,28 +3,36 @@ from torch import nn
 
 
 class Conv2dNorm(nn.Sequential):
-    def __init__(self, in_ch, out_ch, kernel_size=1, stride=1, padding=0, groups=1):
+    def __init__(
+        self, channels_in, channels_out, kernel_size=1, stride=1, padding=0, groups=1
+    ):
         super().__init__(
-            nn.BatchNorm2d(in_ch),
+            nn.BatchNorm2d(channels_in),
             nn.Conv2d(
-                in_ch, out_ch, kernel_size, stride, padding, groups=groups, bias=False
+                channels_in,
+                channels_out,
+                kernel_size,
+                stride,
+                padding,
+                groups=groups,
+                bias=False,
             ),
             nn.GELU(),
         )
 
 
 class SeparableConv(nn.Sequential):
-    def __init__(self, in_ch, out_ch, kernel_size, stride=1) -> None:
+    def __init__(self, channels_in, channels_out, kernel_size, stride=1) -> None:
         super().__init__(
             Conv2dNorm(
-                in_ch,
-                in_ch,
+                channels_in,
+                channels_in,
                 kernel_size,
                 stride,
                 padding=kernel_size // 2,
-                groups=in_ch,
+                groups=channels_in,
             ),
-            Conv2dNorm(in_ch, out_ch),
+            Conv2dNorm(channels_in, channels_out),
         )
 
 
