@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision import transforms as T
 from torchvision.transforms.functional import InterpolationMode
+from tqdm import tqdm
 
 from resnet import resnet32
 from separable_resnet import SeparableResNet
@@ -82,7 +83,7 @@ def train_one_epoch(
     epoch_loss = Mean()
     epoch_accuracy = Accuracy()
 
-    for image, target in data_loader:
+    for image, target in tqdm(data_loader, leave=False, ncols=100):
         image, target = image.to(device), target.to(device)
         with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
             logits = model(image) / temperature
@@ -236,6 +237,7 @@ def main(args: Config):
         print(
             f"Epoch: {epoch:{epoch_fmt}}/{tot_epochs} - "
             f"Time: {timedelta(seconds=epoch_time)}/{timedelta(seconds=training_time)} - "
+            f"ETA: {timedelta(seconds=epoch_time * (tot_epochs - epoch))} - "
             f"Train Loss: {train_stats['loss']:.6f} - Train Accuracy: {train_stats['accuracy']:.2%} - "
             f"Test Loss: {val_stats['val_loss']:.6f} - Test Accuracy: {val_stats['val_accuracy']:.2%}"
         )
