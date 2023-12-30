@@ -1,49 +1,41 @@
 import time
 from datetime import timedelta
-from argparse import ArgumentParser
-import mlflow
+from typing import Literal
 
+import mlflow
 import torch
-from torch.optim import lr_scheduler
+from tap import Tap
 from torch.cuda.amp import GradScaler
-from torchvision import datasets
+from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
+from torchvision import datasets
 from torchvision import transforms as T
 from torchvision.transforms.functional import InterpolationMode
 
-from separable_resnet import SeparableResNet
 from resnet import resnet32
-from utils import Mean, Accuracy, LossFn
+from separable_resnet import SeparableResNet
+from utils import Accuracy, LossFn, Mean
 
 
-def parse_args():
-    parser = ArgumentParser(description="PyTorch training script")
-    parser.add_argument(
-        "--model_name",
-        choices=["separable_resnet", "resnet"],
-        default="separable_resnet",
-    )
-    parser.add_argument("--resume_run_id", type=str, help="WandB run id to resume")
-    parser.add_argument("--temperature", type=float, default=1)
-    parser.add_argument("--net_width_factor", type=int, default=4)
-    parser.add_argument("--net_depth_factor", type=int, default=3)
-    parser.add_argument("--kernel_size", type=int, default=5)
-    parser.add_argument("--epochs", type=int, default=120)
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--lr_max", type=float, default=1e-1)
-    parser.add_argument("--momentum", type=float, default=0.9)
-    parser.add_argument("--warmup_epochs", type=int, default=15)
-    parser.add_argument("--lr_base_period", type=int, default=15)
-    parser.add_argument("--lr_period_factor", type=int, default=2)
-    parser.add_argument("--weight_decay_factor", type=float, default=1e-2)
-    parser.add_argument("--use_entropy_weights", action="store_true", default=False)
-    parser.add_argument("--entropy_with_grads", action="store_true", default=False)
-    parser.add_argument("--clip_grad_max_norm", type=float, default=1)
-    parser.add_argument("--label_smoothing", type=float, default=0.1)
-    parser.add_argument("--dataset", choices=["cifar10"], default="cifar10")
-
-    args = parser.parse_args()
-    return args
+class Config(Tap):
+    model_name: Literal["separable_resnet", "resnet"] = "separable_resnet"
+    net_width_factor: int = 4
+    net_depth_factor: int = 3
+    kernel_size: int = 5
+    epochs: int = 30
+    warmup_epochs: int = 15
+    lr_max: float = 0.1
+    momentum: float = 0.9
+    lr_base_period: int = 15
+    lr_period_factor: int = 2
+    batch_size: int = 64
+    weight_decay_factor: float = 0.01
+    clip_grad_max_norm: float = 1
+    label_smoothing: float = 0.1
+    dataset: Literal["cifar10"] = "cifar10"
+    temperature: float = 1
+    use_entropy_weights: bool = False
+    entropy_with_grads: bool = False
 
 
 def get_data(dataset_name, batch_size):
@@ -129,7 +121,7 @@ def evaluate(model, criterion, data_loader, device):
     return stats
 
 
-def main(args):
+def main(args: Config):
     mlflow.set_tracking_uri("http://0.0.0.0:8888")
     mlflow.set_experiment("separable-resnet")
 
@@ -173,7 +165,7 @@ def main(args):
         )
     elif args.model_name == "resnet":
         model = resnet32()
-    
+
     compiled_model = torch.compile(model)
     compiled_model = compiled_model.to(device)
 
@@ -258,5 +250,5 @@ def main(args):
 
 
 if __name__ == "__main__":
-    args = parse_args()
+    args = Config().parse_args()
     main(args)
