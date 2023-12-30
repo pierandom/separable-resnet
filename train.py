@@ -1,9 +1,7 @@
-import os
-import json
 import time
 from datetime import timedelta
-from argparse import ArgumentParser, Namespace
-import wandb
+from argparse import ArgumentParser
+import mlflow
 
 import torch
 from torch.optim import lr_scheduler
@@ -97,7 +95,7 @@ def train_one_epoch(
         with torch.autocast(device_type=device.type, dtype=torch.bfloat16):
             logits = model(image) / temperature
             loss = criterion(logits, target)
-        
+
         optimizer.zero_grad()
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
@@ -132,6 +130,9 @@ def evaluate(model, criterion, data_loader, device):
 
 
 def main(args):
+    mlflow.set_tracking_uri("http://0.0.0.0:8888")
+    mlflow.set_experiment("separable-resnet")
+
     config = {
         "model_name": args.model_name,
         "warmup_epochs": args.warmup_epochs,
@@ -158,25 +159,7 @@ def main(args):
             }
         )
 
-    if args.resume_run_id:
-        wandb.init(project="separable-resnet", resume="must", id=args.resume_run_id)
-    else:
-        wandb.init(project="separable-resnet", config=config)
-
-    config_path = os.path.join(wandb.run.dir, "config.json")
-    checkpoint_path = os.path.join(wandb.run.dir, "checkpoint.pth")
-
-    if args.resume_run_id:  # load resuming run config
-        wandb.restore("config.json")
-        with open(config_path) as config_file:
-            config = json.load(config_file)
-        args_dict = vars(args)
-        args_dict.update(config)
-        args = Namespace(**args_dict)
-    else:  # save run config
-        with open(config_path, "w") as config_file:
-            json.dump(config, config_file)
-        wandb.save(config_path, base_path=wandb.run.dir)
+    mlflow.log_params(config)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -190,11 +173,13 @@ def main(args):
         )
     elif args.model_name == "resnet":
         model = resnet32()
-    model = torch.compile(model)
-    model = model.to(device)
+    
+    compiled_model = torch.compile(model)
+    compiled_model = compiled_model.to(device)
+
     scaler = GradScaler()
     criterion = LossFn(
-        model,
+        compiled_model,
         device,
         label_smoothing=args.label_smoothing,
         weight_decay_factor=args.weight_decay_factor,
@@ -202,7 +187,7 @@ def main(args):
         entropy_with_grads=args.entropy_with_grads,
     )
     optimizer = torch.optim.SGD(
-        model.parameters(), lr=args.lr_max, momentum=args.momentum
+        compiled_model.parameters(), lr=args.lr_max, momentum=args.momentum
     )
     scheduler1 = lr_scheduler.ConstantLR(
         optimizer, factor=1, total_iters=args.warmup_epochs
@@ -214,19 +199,9 @@ def main(args):
         optimizer, schedulers=[scheduler1, scheduler2], milestones=[args.warmup_epochs]
     )
 
-    if wandb.run.resumed:
-        wandb.restore(
-            "checkpoint.pth"
-        )  # returns io object with wrong encoding on windows
-        checkpoint = torch.load(checkpoint_path)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        start_epoch = checkpoint["epoch"]
-    else:
-        start_epoch = 0
+    start_epoch = 0
 
-    num_parameters = sum(p.numel() for p in model.parameters())
+    num_parameters = sum(p.numel() for p in compiled_model.parameters())
     print(f"Model parameters: {num_parameters:,}")
 
     if torch.cuda.is_available():
@@ -241,7 +216,7 @@ def main(args):
     for epoch in range(1 + start_epoch, 1 + tot_epochs):
         start_time_epoch = time.time()
         train_stats = train_one_epoch(
-            model,
+            compiled_model,
             criterion,
             optimizer,
             scaler,
@@ -251,21 +226,20 @@ def main(args):
             args.temperature,
         )
         scheduler.step()
-        val_stats = evaluate(model, criterion, data_loader_test, device)
+        val_stats = evaluate(compiled_model, criterion, data_loader_test, device)
         epoch_time = int(time.time() - start_time_epoch)
         training_time = int(time.time() - start_time_training)
 
-        wandb.log(train_stats, step=epoch)
-        wandb.log(val_stats, step=epoch)
+        mlflow.log_metrics(train_stats, step=epoch)
+        mlflow.log_metrics(val_stats, step=epoch)
 
         checkpoint = {
             "epoch": epoch,
-            "model_state_dict": model.state_dict(),
+            "model_state_dict": compiled_model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "scheduler_state_dict": scheduler.state_dict(),
         }
-        torch.save(checkpoint, checkpoint_path)
-        wandb.save(checkpoint_path, base_path=wandb.run.dir)
+        mlflow.pytorch.log_state_dict(checkpoint, artifact_path="checkpoint")
 
         print(
             f"Epoch: {epoch:{epoch_fmt}}/{tot_epochs} - "
@@ -273,6 +247,14 @@ def main(args):
             f"Train Loss: {train_stats['loss']:.6f} - Train Accuracy: {train_stats['accuracy']:.2%} - "
             f"Test Loss: {val_stats['val_loss']:.6f} - Test Accuracy: {val_stats['val_accuracy']:.2%}"
         )
+
+    state_dict = {
+        k.removeprefix("_orig_mod."): v for k, v in compiled_model.state_dict().items()
+    }
+    model.load_state_dict(state_dict)
+    mlflow.pytorch.log_model(
+        model, artifact_path="model", registered_model_name="CIFAR10-Classifier"
+    )
 
 
 if __name__ == "__main__":
