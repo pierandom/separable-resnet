@@ -1,10 +1,8 @@
 import time
 from datetime import timedelta
-from typing import Literal
 
 import mlflow
 import torch
-from tap import Tap
 from torch.cuda.amp import GradScaler
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
@@ -13,30 +11,10 @@ from torchvision import transforms as T
 from torchvision.transforms.functional import InterpolationMode
 from tqdm import tqdm
 
+from config import Config
 from resnet import resnet32
 from separable_resnet import SeparableResNet
 from utils import Accuracy, LossFn, Mean
-
-
-class Config(Tap):
-    model_name: Literal["separable_resnet", "resnet"] = "separable_resnet"
-    net_width_factor: int = 4
-    net_depth_factor: int = 3
-    kernel_size: int = 5
-    epochs: int = 30
-    warmup_epochs: int = 15
-    lr_max: float = 0.1
-    momentum: float = 0.9
-    lr_base_period: int = 15
-    lr_period_factor: int = 2
-    batch_size: int = 64
-    weight_decay_factor: float = 0.01
-    clip_grad_max_norm: float = 1
-    label_smoothing: float = 0.1
-    dataset: Literal["cifar10"] = "cifar10"
-    temperature: float = 1
-    use_entropy_weights: bool = False
-    entropy_with_grads: bool = False
 
 
 def get_data(dataset_name, batch_size):
