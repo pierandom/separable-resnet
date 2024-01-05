@@ -1,0 +1,14 @@
+torch==2.0.1
+torchvision
+tensorrt==8.6.1
+torch-tensorrt
+
+mlflow
+tqdm
+typed-argument-parser
+
+onnx
+onnxruntime
+
+fastapi
+uvicorn
