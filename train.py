@@ -5,46 +5,13 @@ import mlflow
 import torch
 from torch.cuda.amp import GradScaler
 from torch.optim import lr_scheduler
-from torch.utils.data import DataLoader
-from torchvision import datasets
-from torchvision import transforms as T
-from torchvision.transforms.functional import InterpolationMode
 from tqdm import tqdm
 
 from config import Config
+from data_loaders import get_data_loaders
 from resnet import resnet32
 from separable_resnet import SeparableResNet
 from utils import Accuracy, LossFn, Mean
-
-
-def get_data(dataset_name, batch_size):
-    if dataset_name == "cifar10":
-        dataset = datasets.CIFAR10
-    else:
-        raise ValueError(f"Unknown dataset: {dataset_name}")
-
-    transforms = T.Compose(
-        [
-            T.RandomHorizontalFlip(),
-            T.TrivialAugmentWide(interpolation=InterpolationMode.BILINEAR),
-            T.ToTensor(),
-            T.RandomErasing(),
-        ]
-    )
-
-    train_loader = DataLoader(
-        dataset(root=".datasets", train=True, transform=transforms, download=True),
-        batch_size=batch_size,
-        shuffle=True,
-    )
-
-    test_loader = DataLoader(
-        dataset(root=".datasets", train=False, transform=T.ToTensor(), download=True),
-        batch_size=batch_size,
-        shuffle=False,
-    )
-
-    return train_loader, test_loader
 
 
 def train_one_epoch(
@@ -134,7 +101,7 @@ def main(args: Config):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    data_loader_train, data_loader_test = get_data(args.dataset, args.batch_size)
+    data_loader_train, data_loader_test = get_data_loaders(args.dataset, args.batch_size)
     if args.model_name == "separable_resnet":
         model = SeparableResNet(
             num_classes=len(data_loader_train.dataset.classes),

@@ -1,6 +1,7 @@
 __pycache__
 .datasets
-wandb
+.vscode
 .venv*
+wandb
 mlruns
 mlartifacts

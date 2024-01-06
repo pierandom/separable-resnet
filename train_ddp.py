@@ -4,14 +4,11 @@ import mlflow
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-import torchvision
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import lr_scheduler
-from torch.utils.data import DataLoader, DistributedSampler
-from torchvision import transforms as T
-from torchvision.transforms.functional import InterpolationMode
 
 from config import Config
+from data_loaders import get_data_loaders
 from separable_resnet import SeparableResNet
 from trainer_ddp import Trainer
 
@@ -31,48 +28,14 @@ def cleanup():
 def main(rank, world_size, config):
     setup(rank, world_size)
     try:
-        _main(rank, world_size, config)
+        _main(rank, config)
     except KeyboardInterrupt:
         print(f"Process {rank} interrupted!")
     finally:
         cleanup()
 
 
-def get_data_loaders(dataset_name: str, batch_size: int) -> list[DataLoader]:
-    transforms = T.Compose(
-        [
-            T.RandomHorizontalFlip(),
-            T.TrivialAugmentWide(interpolation=InterpolationMode.BILINEAR),
-            T.ToTensor(),
-            T.RandomErasing(),
-        ]
-    )
-    if dataset_name == "cifar10":
-        datasets = [
-            torchvision.datasets.CIFAR10(
-                root=".datasets", train=True, transform=transforms, download=True
-            ),
-            torchvision.datasets.CIFAR10(
-                root=".datasets", train=False, transform=T.ToTensor(), download=True
-            ),
-        ]
-    else:
-        raise ValueError(f"Unknown dataset: {dataset_name}")
-
-    data_loaders = [
-        DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            sampler=DistributedSampler(dataset),
-        )
-        for dataset in datasets
-    ]
-
-    return data_loaders
-
-
-def _main(rank: int, world_size: int, args: Config):
+def _main(rank: int, args: Config):
     if rank == 0:
         mlflow.set_tracking_uri("http://0.0.0.0:8888")
         mlflow.set_experiment("separable-resnet")
@@ -80,7 +43,9 @@ def _main(rank: int, world_size: int, args: Config):
 
     device = torch.device(rank)
 
-    train_data_loader, val_data_loader = get_data_loaders(args.dataset, args.batch_size)
+    train_data_loader, val_data_loader = get_data_loaders(
+        args.dataset, args.batch_size, is_distributed=True
+    )
     model = SeparableResNet(
         num_classes=len(train_data_loader.dataset.classes),
         kernel_size=args.kernel_size,
